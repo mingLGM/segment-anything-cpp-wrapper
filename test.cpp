@@ -6,6 +6,7 @@
 #include <gflags/gflags.h>
 
 #include "sam.h"
+#include "sam_wrapper.h"
 
 DEFINE_string(pre_model, "models/sam_preprocess.onnx", "Path to the preprocessing model");
 DEFINE_string(sam_model, "models/sam_vit_h_4b8939.onnx", "Path to the sam model");
@@ -47,9 +48,14 @@ int main(int argc, char** argv) {
   }
 
   std::cout << "Loading model..." << std::endl;
-  Sam sam(param);  // FLAGS_pre_model, FLAGS_sam_model, std::thread::hardware_concurrency());
+  //Sam sam(param);  // FLAGS_pre_model, FLAGS_sam_model, std::thread::hardware_concurrency());
+  //Sam sam("models/sam_preprocess.onnx", "models/sam_vit_h_4b8939.onnx", std::thread::hardware_concurrency());
+  //SamWrapper sam("models/mobile_sam_preprocess.onnx", "models/mobile_sam.onnx", std::thread::hardware_concurrency());
+  SAM wrapperPtr = std::make_shared<SamWrapper>("models/mobile_sam_preprocess.onnx", "models/mobile_sam.onnx", std::thread::hardware_concurrency());
+  
 
-  auto inputSize = sam.getInputSize();
+  //auto inputSize = sam.getInputSize();
+  auto inputSize = wrapperPtr->getInputSize();
   if (inputSize.empty()) {
     std::cout << "Sam initialization failed" << std::endl;
     return -1;
@@ -63,7 +69,8 @@ int main(int argc, char** argv) {
   std::cout << "Resize image to " << inputSize << std::endl;
   cv::resize(image, image, inputSize);
   std::cout << "Loading image..." << std::endl;
-  if (!sam.loadImage(image)) {
+  //if (!sam.loadImage(image)) {
+  if (!wrapperPtr->loadImage(image)) {
     std::cout << "Image loading failed" << std::endl;
     return -1;
   }
@@ -131,6 +138,7 @@ int main(int argc, char** argv) {
           std::cout << "Box: " << roi << std::endl;
         }
       } else {
+        //std::cout << "----" << newClickedPoint.z << "----" << newClickedPoint.z % 2 << std::endl;
         if (newClickedPoint.z % 2 == 0) {
           clickedPoints = {newClickedPoint};
         } else {
@@ -151,7 +159,10 @@ int main(int argc, char** argv) {
         continue;
       }
 
-      cv::Mat mask = sam.getMask(points, nagativePoints, roi);
+      //cv::Mat mask = sam.getMask(points, nagativePoints, roi);
+      cv::Mat mask = wrapperPtr->getMask(points, nagativePoints, roi);
+
+      
       SHOW_TIME
 
       // apply mask to image
@@ -164,54 +175,124 @@ int main(int argc, char** argv) {
         }
       }
 
-      for (auto& p : points) {
-        cv::circle(outImage, p, 2, {0, 255, 255}, -1);
-      }
-      for (auto& p : nagativePoints) {
-        cv::circle(outImage, p, 2, {255, 0, 0}, -1);
-      }
-    } else if (newClickedPoint.x == -2) {
-      newClickedPoint.x = -1;
-      int step = 40;
-      cv::Size sampleSize = {image.cols / step, image.rows / step};
+      //for (auto& p : points) {
+      //  cv::circle(outImage, p, 2, {0, 255, 255}, -1);
+      //}
+      //for (auto& p : nagativePoints) {
+      //  cv::circle(outImage, p, 2, {255, 0, 0}, -1);
+      //}
 
-      std::cout << "Automatically generating masks with " << sampleSize.area()
-                << " input points ..." << std::endl;
 
-      auto mask = sam.autoSegment(
-          sampleSize, [](double v) { std::cout << "\rProgress: " << int(v * 100) << "%\t"; });
-      SHOW_TIME
+      //// 提取分割的坐标点
+      //std::vector<cv::Point> segmentationPoints;
+      //for (int i = 0; i < mask.rows; i++) {
+      //  for (int j = 0; j < mask.cols; j++) {
+      //    if (mask.at<uchar>(i, j) > 0) {
+      //      segmentationPoints.push_back(cv::Point(j, i));
+      //    }
+      //  }
+      //}
+      //// 将提取的坐标点绘制在 outImage 上
+      //for (auto& p : segmentationPoints) {
+      //  cv::circle(outImage, p, 2, {0, 255, 0}, -1);  // 使用绿色标记分割的坐标点
+      //}
 
-      const double overlayFactor = 0.5;
-      const int maxMaskValue = 255 * (1 - overlayFactor);
-      outImage = cv::Mat::zeros(image.size(), CV_8UC3);
 
-      static std::map<int, cv::Vec3b> colors;
 
-      for (int i = 0; i < image.rows; i++) {
-        for (int j = 0; j < image.cols; j++) {
-          auto value = (int)mask.at<double>(i, j);
-          if (value <= 0) {
-            continue;
-          }
 
-          auto it = colors.find(value);
-          if (it == colors.end()) {
-            colors.insert(it, {value, cv::Vec3b(rand() % maxMaskValue, rand() % maxMaskValue,
-                                                rand() % maxMaskValue)});
-          }
-
-          outImage.at<cv::Vec3b>(i, j) = it->second + image.at<cv::Vec3b>(i, j) * overlayFactor;
+      // 检测轮廓
+      std::vector<std::vector<cv::Point>> contours;
+      cv::Mat contoursImage = cv::Mat::zeros(mask.size(), CV_8UC3);
+      cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+      // contours 中存储了所有的轮廓，每个轮廓是一个向量，包含了一系列点的坐标
+      for (size_t i = 0; i < contours.size(); ++i) {
+        // 对轮廓中的每个点
+        //std::cout << "--i---" << i << std::endl;
+        cv::drawContours(contoursImage, contours, static_cast<int>(i), cv::Scalar(255, 255, 255), 2, cv::LINE_8);
+        for (size_t j = 0; j < contours[i].size(); ++j) {
+          // 获取轮廓中的点的坐标
+          cv::Point point = contours[i][j];
+          //std::cout << "-----" << point.x << " " << point.y;
         }
       }
+      //cv::imshow("Contours", contoursImage);
 
-      // draw circles on the image to indicate the sample points
-      for (int i = 0; i < sampleSize.height; i++) {
-        for (int j = 0; j < sampleSize.width; j++) {
-          cv::circle(outImage, {j * step, i * step}, 2, {0, 0, 255}, -1);
-        }
-      }
-    }
+
+
+      //// 使用Canny边缘检测算法检测边缘
+      //cv::Mat edges;
+      //cv::Canny(mask, edges, 20, 100, 7, true);  // 调整阈值以获得最佳边缘效果
+      ////// 应用Scharr算子进行边缘检测
+      ////cv::Mat scharrX, scharrY;
+      ////cv::Scharr(mask, scharrX, CV_32F, 1, 0);   // 计算水平方向的边缘
+      ////cv::Scharr(mask, scharrY, CV_32F, 0, 1);  // 计算垂直方向的边缘
+      ////cv::Mat edgeMagnitude, edgeDirection;
+      ////cv::cartToPolar(scharrX, scharrY, edgeMagnitude, edgeDirection);
+      ////cv::imshow("Edge Magnitude", edgeMagnitude);
+      ////cv::imwrite("segmentation_edges_scharr.png", edgeMagnitude);
+
+      //// 绘制边缘
+      ////cv::Mat result = cv::Mat::zeros(mask.size(), CV_8UC3);
+      ////result.setTo(cv::Scalar(255, 255, 255));     // 白色背景
+      ////result.setTo(cv::Scalar(0, 0, 255), edges);  // 红色边缘
+      ////cv::imwrite("segmentation_edges.png", result);
+      //std::vector<cv::Point> segmentationPoints;
+      //for (int i = 0; i < edges.rows; i++) {
+      //  for (int j = 0; j < edges.cols; j++) {
+      //    if (edges.at<uchar>(i, j) > 0) {
+      //      segmentationPoints.push_back(cv::Point(j, i));
+      //    }
+      //  }
+      //}
+      //for (auto& p : segmentationPoints) {
+      //  cv::circle(outImage, p, 2, {0, 255, 0}, -1);  // 使用绿色标记分割的坐标点
+      //} 
+
+
+
+    } 
+    //else if (newClickedPoint.x == -2) {
+    //  newClickedPoint.x = -1;
+    //  int step = 40;
+    //  cv::Size sampleSize = {image.cols / step, image.rows / step};
+
+    //  std::cout << "Automatically generating masks with " << sampleSize.area()
+    //            << " input points ..." << std::endl;
+
+    //  auto mask = sam.autoSegment(
+    //      sampleSize, [](double v) { std::cout << "\rProgress: " << int(v * 100) << "%\t"; });
+    //  SHOW_TIME
+
+    //  const double overlayFactor = 0.5;
+    //  const int maxMaskValue = 255 * (1 - overlayFactor);
+    //  outImage = cv::Mat::zeros(image.size(), CV_8UC3);
+
+    //  static std::map<int, cv::Vec3b> colors;
+
+    //  for (int i = 0; i < image.rows; i++) {
+    //    for (int j = 0; j < image.cols; j++) {
+    //      auto value = (int)mask.at<double>(i, j);
+    //      if (value <= 0) {
+    //        continue;
+    //      }
+
+    //      auto it = colors.find(value);
+    //      if (it == colors.end()) {
+    //        colors.insert(it, {value, cv::Vec3b(rand() % maxMaskValue, rand() % maxMaskValue,
+    //                                            rand() % maxMaskValue)});
+    //      }
+
+    //      outImage.at<cv::Vec3b>(i, j) = it->second + image.at<cv::Vec3b>(i, j) * overlayFactor;
+    //    }
+    //  }
+
+    //  // draw circles on the image to indicate the sample points
+    //  for (int i = 0; i < sampleSize.height; i++) {
+    //    for (int j = 0; j < sampleSize.width; j++) {
+    //      cv::circle(outImage, {j * step, i * step}, 2, {0, 0, 255}, -1);
+    //    }
+    //  }
+    //}
 
     if (!roi.empty()) {
       cv::rectangle(outImage, roi, {255, 255, 255}, 2);

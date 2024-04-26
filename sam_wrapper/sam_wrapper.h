@@ -16,5 +16,7 @@ class __declspec(dllexport) SamWrapper {
 };
 // 使用 typedef 定义指针类型
 typedef std::shared_ptr<SamWrapper> SAM;
+cv::Mat SamMask;
+std::mutex SamMutex;
 
 #endif  // SAM_WRAPPER_H_

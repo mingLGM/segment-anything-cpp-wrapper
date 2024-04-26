@@ -18,5 +18,8 @@ cv::Size SamWrapper::getInputSize() const { return m_sam->getInputSize(); }
 bool SamWrapper::loadImage(const cv::Mat& image) { return m_sam->loadImage(image); }
 
 cv::Mat SamWrapper::getMask(const std::list<cv::Point>& points, const std::list<cv::Point>& negativePoints, const cv::Rect& roi, double* iou) const {
-  return m_sam->getMask(points, negativePoints, roi);
+  SamMutex.lock();
+  SamMask = m_sam->getMask(points, negativePoints, roi);
+  SamMutex.unlock();
+  return SamMask;
 }

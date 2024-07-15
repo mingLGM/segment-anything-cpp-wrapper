@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
   //Sam sam("models/sam_preprocess.onnx", "models/sam_vit_h_4b8939.onnx", std::thread::hardware_concurrency());
   //SamWrapper sam("models/mobile_sam_preprocess.onnx", "models/mobile_sam.onnx", std::thread::hardware_concurrency());
   SAM wrapperPtr = std::make_shared<SamWrapper>("models/mobile_sam_preprocess.onnx", "models/mobile_sam.onnx", std::thread::hardware_concurrency());
-  
+  //SAM wrapperPtr = std::make_shared<SamWrapper>("models/sam_preprocess.onnx", "models/sam_vit_h_4b8939.onnx", std::thread::hardware_concurrency());
 
   //auto inputSize = sam.getInputSize();
   auto inputSize = wrapperPtr->getInputSize();

@@ -8,6 +8,7 @@
 #include <locale>
 #include <opencv2/opencv.hpp>
 #include <vector>
+#include <mutex>
 
 struct SamModel {
   Ort::Env env{ORT_LOGGING_LEVEL_WARNING, "test"};
@@ -17,6 +18,7 @@ struct SamModel {
   Ort::MemoryInfo memoryInfo{Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)};
   bool bModelLoaded = false, bSamHQ = false;
   std::vector<float> outputTensorValuesPre, intermTensorValuesPre;
+  mutable std::mutex mutex;
 
   char *inputNamesSam[6]{"image_embeddings", "point_coords",   "point_labels",
                          "mask_input",       "has_mask_input", "orig_im_size"},
@@ -133,7 +135,7 @@ struct SamModel {
 
     outputTensorValuesPre = std::vector<float>(outputShapePre[0] * outputShapePre[1] *
                                                outputShapePre[2] * outputShapePre[3]);
-    outputTensors.push_back(Ort::Value::CreateTensor<float>(
+    outputTensors.emplace_back(Ort::Value::CreateTensor<float>(
         memoryInfo, outputTensorValuesPre.data(), outputTensorValuesPre.size(),
         outputShapePre.data(), outputShapePre.size()));
 
@@ -141,7 +143,7 @@ struct SamModel {
       intermTensorValuesPre =
           std::vector<float>(intermShapePre[0] * intermShapePre[1] * intermShapePre[2] *
                              intermShapePre[3] * intermShapePre[4]);
-      outputTensors.push_back(Ort::Value::CreateTensor<float>(
+      outputTensors.emplace_back(Ort::Value::CreateTensor<float>(
           memoryInfo, intermTensorValuesPre.data(), intermTensorValuesPre.size(),
           intermShapePre.data(), intermShapePre.size()));
     }
@@ -154,33 +156,45 @@ struct SamModel {
     return true;
   }
 
+
   void getMask(const std::list<cv::Point>& points, const std::list<cv::Point>& negativePoints,
                const cv::Rect& roi, cv::Mat& outputMaskSam, double& iouValue) const {
+    std::lock_guard<std::mutex> lock(mutex);
     const size_t maskInputSize = 256 * 256;
-    float maskInputValues[maskInputSize],
+    float maskInputValues[maskInputSize] = {0},
         hasMaskValues[] = {0},
-        orig_im_size_values[] = {(float)inputShapePre[2], (float)inputShapePre[3]};
+        orig_im_size_values[] = {static_cast<float>(inputShapePre[2]), static_cast<float>(inputShapePre[3])};
     memset(maskInputValues, 0, sizeof(maskInputValues));
 
+    const float imgWidth = static_cast<float>(inputShapePre[3]);
+    const float imgHeight = static_cast<float>(inputShapePre[2]);
     std::vector<float> inputPointValues, inputLabelValues;
-    for (auto& point : points) {
-      inputPointValues.push_back((float)point.x);
-      inputPointValues.push_back((float)point.y);
-      inputLabelValues.push_back(1);
+    for (const auto& point : points) {
+      if (point.x >= 0 && point.x < imgWidth && point.y >= 0 && point.y < imgHeight) {
+        inputPointValues.emplace_back(static_cast<float>(point.x));
+        inputPointValues.emplace_back(static_cast<float>(point.y));
+        inputLabelValues.emplace_back(1);
+      }
     }
-    for (auto& point : negativePoints) {
-      inputPointValues.push_back((float)point.x);
-      inputPointValues.push_back((float)point.y);
-      inputLabelValues.push_back(0);
+    for (const auto& point : negativePoints) {
+      if (point.x >= 0 && point.x < imgWidth && point.y >= 0 && point.y < imgHeight) {
+        inputPointValues.emplace_back(static_cast<float>(point.x));
+        inputPointValues.emplace_back(static_cast<float>(point.y));
+        inputLabelValues.emplace_back(0);
+      }
     }
 
     if (!roi.empty()) {
-      inputPointValues.push_back((float)roi.x);
-      inputPointValues.push_back((float)roi.y);
-      inputLabelValues.push_back(2);
-      inputPointValues.push_back((float)roi.br().x);
-      inputPointValues.push_back((float)roi.br().y);
-      inputLabelValues.push_back(3);
+      if (roi.width > 0 && roi.height > 0 && roi.x >= 0 && roi.x < imgWidth && roi.y >= 0 &&
+          roi.y < imgHeight && roi.br().x >= 0 && roi.br().x < imgWidth && roi.br().y >= 0 &&
+          roi.br().y < imgHeight) {
+        inputPointValues.emplace_back(static_cast<float>(roi.x));
+        inputPointValues.emplace_back(static_cast<float>(roi.y));
+        inputLabelValues.emplace_back(2);
+        inputPointValues.emplace_back(static_cast<float>(roi.br().x));
+        inputPointValues.emplace_back(static_cast<float>(roi.br().y));
+        inputLabelValues.emplace_back(3);
+      }
     }
 
     const int numPoints = inputLabelValues.size();
@@ -189,48 +203,68 @@ struct SamModel {
                          origImSizeShape = {2};
 
     std::vector<Ort::Value> inputTensorsSam;
-    inputTensorsSam.push_back(Ort::Value::CreateTensor<float>(
-        memoryInfo, (float*)outputTensorValuesPre.data(), outputTensorValuesPre.size(),
-        outputShapePre.data(), outputShapePre.size()));
+    try {
+      inputTensorsSam.emplace_back(Ort::Value::CreateTensor<float>(
+          memoryInfo, (float*)outputTensorValuesPre.data(), outputTensorValuesPre.size(),
+          outputShapePre.data(), outputShapePre.size()));
 
-    auto inputNames = inputNamesSam;
-    if (bSamHQ) {
-      inputTensorsSam.push_back(Ort::Value::CreateTensor<float>(
-          memoryInfo, (float*)intermTensorValuesPre.data(), intermTensorValuesPre.size(),
-          intermShapePre.data(), intermShapePre.size()));
-      inputNames = inputNamesSamHQ;
-    }
-
-    inputTensorsSam.push_back(Ort::Value::CreateTensor<float>(memoryInfo, inputPointValues.data(),
-                                                              2 * numPoints, inputPointShape.data(),
-                                                              inputPointShape.size()));
-    inputTensorsSam.push_back(Ort::Value::CreateTensor<float>(memoryInfo, inputLabelValues.data(),
-                                                              numPoints, pointLabelsShape.data(),
-                                                              pointLabelsShape.size()));
-    inputTensorsSam.push_back(Ort::Value::CreateTensor<float>(
-        memoryInfo, maskInputValues, maskInputSize, maskInputShape.data(), maskInputShape.size()));
-    inputTensorsSam.push_back(Ort::Value::CreateTensor<float>(
-        memoryInfo, hasMaskValues, 1, hasMaskInputShape.data(), hasMaskInputShape.size()));
-    inputTensorsSam.push_back(Ort::Value::CreateTensor<float>(
-        memoryInfo, orig_im_size_values, 2, origImSizeShape.data(), origImSizeShape.size()));
-
-    Ort::RunOptions runOptionsSam;
-    auto outputTensorsSam = sessionSam->Run(runOptionsSam, inputNames, inputTensorsSam.data(),
-                                            inputTensorsSam.size(), outputNamesSam, 3);
-
-    auto outputMasksValues = outputTensorsSam[0].GetTensorMutableData<float>();
-    if (outputMaskSam.type() != CV_8UC1 ||
-        outputMaskSam.size() != cv::Size(inputShapePre[3], inputShapePre[2])) {
-      outputMaskSam = cv::Mat(inputShapePre[2], inputShapePre[3], CV_8UC1);
-    }
-
-    for (int i = 0; i < outputMaskSam.rows; i++) {
-      for (int j = 0; j < outputMaskSam.cols; j++) {
-        outputMaskSam.at<uchar>(i, j) = outputMasksValues[i * outputMaskSam.cols + j] > 0 ? 255 : 0;
+      auto inputNames = inputNamesSam;
+      if (bSamHQ) {
+        inputTensorsSam.emplace_back(Ort::Value::CreateTensor<float>(
+            memoryInfo, (float*)intermTensorValuesPre.data(), intermTensorValuesPre.size(),
+            intermShapePre.data(), intermShapePre.size()));
+        inputNames = inputNamesSamHQ;
       }
-    }
 
-    iouValue = outputTensorsSam[1].GetTensorMutableData<float>()[0];
+      inputTensorsSam.emplace_back(
+          Ort::Value::CreateTensor<float>(memoryInfo, inputPointValues.data(), 2 * numPoints,
+                                          inputPointShape.data(), inputPointShape.size()));
+      inputTensorsSam.emplace_back(
+          Ort::Value::CreateTensor<float>(memoryInfo, inputLabelValues.data(), numPoints,
+                                          pointLabelsShape.data(), pointLabelsShape.size()));
+      inputTensorsSam.emplace_back(
+          Ort::Value::CreateTensor<float>(memoryInfo, maskInputValues, maskInputSize,
+                                          maskInputShape.data(), maskInputShape.size()));
+      inputTensorsSam.emplace_back(Ort::Value::CreateTensor<float>(
+          memoryInfo, hasMaskValues, 1, hasMaskInputShape.data(), hasMaskInputShape.size()));
+      inputTensorsSam.emplace_back(Ort::Value::CreateTensor<float>(
+          memoryInfo, orig_im_size_values, 2, origImSizeShape.data(), origImSizeShape.size()));
+
+      Ort::RunOptions runOptionsSam;
+      auto outputTensorsSam = sessionSam->Run(runOptionsSam, inputNames, inputTensorsSam.data(),
+                                              inputTensorsSam.size(), outputNamesSam, 3);
+
+      auto outputMasksValues = outputTensorsSam[0].GetTensorMutableData<float>();
+      if (outputMaskSam.type() != CV_8UC1 ||
+          outputMaskSam.size() != cv::Size(inputShapePre[3], inputShapePre[2])) {
+        outputMaskSam = cv::Mat(inputShapePre[2], inputShapePre[3], CV_8UC1);
+      }
+
+#pragma omp parallel for
+      for (int i = 0; i < outputMaskSam.rows; i++) {
+        for (int j = 0; j < outputMaskSam.cols; j++) {
+          outputMaskSam.at<uchar>(i, j) =
+              outputMasksValues[i * outputMaskSam.cols + j] > 0 ? 255 : 0;
+        }
+      }
+
+      if (outputTensorsSam.size() > 1 &&
+          outputTensorsSam[1].GetTensorTypeAndShapeInfo().GetElementCount() > 0) {
+        iouValue = outputTensorsSam[1].GetTensorMutableData<float>()[0];
+      } else {
+        std::cerr << "____sam_cpp_lib error message!!!____ IOU tensor is missing or empty" << std::endl;
+        iouValue = 0.0;  // default value in case of error
+      }
+    } catch (const Ort::Exception& e) {
+      std::cerr << "____sam_cpp_lib error message!!!____ ONNX Runtime exception: " << e.what() << std::endl;
+      throw;
+    } catch (const std::exception& e) {
+      std::cerr << "____sam_cpp_lib error message!!!____ Standard exception: " << e.what() << std::endl;
+      throw;
+    } catch (...) {
+      std::cerr << "____sam_cpp_lib error message!!!____ Unknown exception" << std::endl;
+      throw;
+    }
   }
 };
 

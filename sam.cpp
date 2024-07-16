@@ -170,14 +170,14 @@ struct SamModel {
     const float imgHeight = static_cast<float>(inputShapePre[2]);
     std::vector<float> inputPointValues, inputLabelValues;
     for (const auto& point : points) {
-      if (point.x >= 0 && point.x < imgWidth && point.y >= 0 && point.y < imgHeight) {
+      if (point.x > 0 && point.x < imgWidth && point.y > 0 && point.y < imgHeight) {
         inputPointValues.emplace_back(static_cast<float>(point.x));
         inputPointValues.emplace_back(static_cast<float>(point.y));
         inputLabelValues.emplace_back(1);
       }
     }
     for (const auto& point : negativePoints) {
-      if (point.x >= 0 && point.x < imgWidth && point.y >= 0 && point.y < imgHeight) {
+      if (point.x > 0 && point.x < imgWidth && point.y > 0 && point.y < imgHeight) {
         inputPointValues.emplace_back(static_cast<float>(point.x));
         inputPointValues.emplace_back(static_cast<float>(point.y));
         inputLabelValues.emplace_back(0);
@@ -185,8 +185,8 @@ struct SamModel {
     }
 
     if (!roi.empty()) {
-      if (roi.width > 0 && roi.height > 0 && roi.x >= 0 && roi.x < imgWidth && roi.y >= 0 &&
-          roi.y < imgHeight && roi.br().x >= 0 && roi.br().x < imgWidth && roi.br().y >= 0 &&
+      if (roi.width > 0 && roi.height > 0 && roi.x > 0 && roi.x < imgWidth && roi.y > 0 &&
+          roi.y < imgHeight && roi.br().x > 0 && roi.br().x < imgWidth && roi.br().y > 0 &&
           roi.br().y < imgHeight) {
         inputPointValues.emplace_back(static_cast<float>(roi.x));
         inputPointValues.emplace_back(static_cast<float>(roi.y));
@@ -240,7 +240,7 @@ struct SamModel {
         outputMaskSam = cv::Mat(inputShapePre[2], inputShapePre[3], CV_8UC1);
       }
 
-#pragma omp parallel for
+//#pragma omp parallel for
       for (int i = 0; i < outputMaskSam.rows; i++) {
         for (int j = 0; j < outputMaskSam.cols; j++) {
           outputMaskSam.at<uchar>(i, j) =

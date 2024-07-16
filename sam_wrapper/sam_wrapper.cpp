@@ -19,7 +19,12 @@ bool SamWrapper::loadImage(const cv::Mat& image) { return m_sam->loadImage(image
 
 cv::Mat SamWrapper::getMask(const std::list<cv::Point>& points, const std::list<cv::Point>& negativePoints, const cv::Rect& roi, double* iou) const {
   SamMutex.lock();
-  SamMask = m_sam->getMask(points, negativePoints, roi);
+  try {
+    SamMask = m_sam->getMask(points, negativePoints, roi);
+  } catch (const std::exception& e) {
+    std::cerr << "Error occurred: " << e.what() << std::endl;
+    SamMask = cv::Mat::zeros(m_sam->getInputSize().height, m_sam->getInputSize().width, CV_8UC1);
+  }
   SamMutex.unlock();
   return SamMask;
 }

@@ -6,9 +6,9 @@
 #include <fstream>
 #include <iostream>
 #include <locale>
+#include <mutex>
 #include <opencv2/opencv.hpp>
 #include <vector>
-#include <mutex>
 
 struct SamModel {
   Ort::Env env{ORT_LOGGING_LEVEL_WARNING, "test"};
@@ -16,7 +16,7 @@ struct SamModel {
   std::unique_ptr<Ort::Session> sessionPre, sessionSam;
   std::vector<int64_t> inputShapePre, outputShapePre, intermShapePre;
   Ort::MemoryInfo memoryInfo{Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)};
-  bool bModelLoaded = false, bSamHQ = false;
+  bool bModelLoaded = false, bSamHQ = false, bEdgeSam = false;
   std::vector<float> outputTensorValuesPre, intermTensorValuesPre;
   mutable std::recursive_mutex recursive_mutex;
 
@@ -24,7 +24,9 @@ struct SamModel {
                          "mask_input",       "has_mask_input", "orig_im_size"},
       *inputNamesSamHQ[7]{"image_embeddings", "interm_embeddings", "point_coords", "point_labels",
                           "mask_input",       "has_mask_input",    "orig_im_size"},
-      *outputNamesSam[3]{"masks", "iou_predictions", "low_res_masks"};
+      *inputNamesEdgeSam[3]{"image_embeddings", "point_coords", "point_labels"},
+      *outputNamesSam[3]{"masks", "iou_predictions", "low_res_masks"},
+      *outputNamesEdgeSam[2]{"scores", "masks"};
 
   SamModel(const Sam::Parameter& param) {
     for (auto& p : param.models) {
@@ -77,7 +79,14 @@ struct SamModel {
     }
 
     sessionSam = std::make_unique<Ort::Session>(env, wsamModelPath.c_str(), sessionOptions[1]);
-    if (sessionSam->GetInputCount() != targetNumber[1] || sessionSam->GetOutputCount() != 3) {
+    const auto samOutputCount = sessionSam->GetOutputCount();
+
+    bEdgeSam = samOutputCount == 2;
+    if (bEdgeSam) {
+      targetNumber[1] = 3;
+    }
+
+    if (sessionSam->GetInputCount() != targetNumber[1] || (samOutputCount != 3 && !bEdgeSam)) {
       std::cerr << "Model not loaded (invalid input/output count)" << std::endl;
       return;
     }
@@ -105,9 +114,6 @@ struct SamModel {
     return cv::Size(inputShapePre[3], inputShapePre[2]);
   }
   bool loadImage(const cv::Mat& image) {
-    std::vector<uint8_t> inputTensorValues(inputShapePre[0] * inputShapePre[1] * inputShapePre[2] *
-                                           inputShapePre[3]);
-
     if (image.size() != cv::Size(inputShapePre[3], inputShapePre[2])) {
       std::cerr << "Image size not match" << std::endl;
       return false;
@@ -117,19 +123,39 @@ struct SamModel {
       return false;
     }
 
-    for (int i = 0; i < inputShapePre[2]; i++) {
-      for (int j = 0; j < inputShapePre[3]; j++) {
-        inputTensorValues[i * inputShapePre[3] + j] = image.at<cv::Vec3b>(i, j)[2];
-        inputTensorValues[inputShapePre[2] * inputShapePre[3] + i * inputShapePre[3] + j] =
-            image.at<cv::Vec3b>(i, j)[1];
-        inputTensorValues[2 * inputShapePre[2] * inputShapePre[3] + i * inputShapePre[3] + j] =
-            image.at<cv::Vec3b>(i, j)[0];
-      }
+    std::vector<uint8_t> inputTensorValuesInt;
+    std::vector<float> inputTensorValuesFloat;
+
+#define SetInput(inputTensorValues)                                                           \
+  inputTensorValues.resize(inputShapePre[0] * inputShapePre[1] * inputShapePre[2] *           \
+                           inputShapePre[3]);                                                 \
+  for (int i = 0; i < inputShapePre[2]; i++) {                                                \
+    for (int j = 0; j < inputShapePre[3]; j++) {                                              \
+      inputTensorValues[i * inputShapePre[3] + j] = image.at<cv::Vec3b>(i, j)[2];             \
+      inputTensorValues[inputShapePre[2] * inputShapePre[3] + i * inputShapePre[3] + j] =     \
+          image.at<cv::Vec3b>(i, j)[1];                                                       \
+      inputTensorValues[2 * inputShapePre[2] * inputShapePre[3] + i * inputShapePre[3] + j] = \
+          image.at<cv::Vec3b>(i, j)[0];                                                       \
+    }                                                                                         \
+  }                                                                                           \
+  if (bEdgeSam) {                                                                             \
+    for (auto& v : inputTensorValues) {                                                       \
+      v /= 255.;                                                                              \
+    }                                                                                         \
+  }
+
+    if (!bEdgeSam) {
+      SetInput(inputTensorValuesInt);
+    } else {
+      SetInput(inputTensorValuesFloat);
     }
 
-    auto inputTensor = Ort::Value::CreateTensor<uint8_t>(
-        memoryInfo, inputTensorValues.data(), inputTensorValues.size(), inputShapePre.data(),
-        inputShapePre.size());
+#define InputTensor(inputTensorValues, type)                                                     \
+  Ort::Value::CreateTensor<type>(memoryInfo, inputTensorValues.data(), inputTensorValues.size(), \
+                                 inputShapePre.data(), inputShapePre.size())
+
+    auto inputTensor = bEdgeSam ? InputTensor(inputTensorValuesFloat, float)
+                                : InputTensor(inputTensorValuesInt, uint8_t);
 
     std::vector<Ort::Value> outputTensors;
 
@@ -150,20 +176,22 @@ struct SamModel {
 
     Ort::RunOptions run_options;
     const char *inputNamesPre[] = {"input"}, *outputNamesPre[] = {"output", "interm_embeddings"};
-    sessionPre->Run(run_options, inputNamesPre, &inputTensor, 1, outputNamesPre,
+    const char *inputNamesPreEdge[] = {"image"}, *outputNamesPreEdge[] = {"image_embeddings"};
+    const auto inputNamesPre1 = bEdgeSam ? inputNamesPreEdge : inputNamesPre,
+               outputNamesPre1 = bEdgeSam ? outputNamesPreEdge : outputNamesPre;
+    sessionPre->Run(run_options, inputNamesPre1, &inputTensor, 1, outputNamesPre1,
                     outputTensors.data(), outputTensors.size());
 
     return true;
   }
 
-
   void getMask(const std::list<cv::Point>& points, const std::list<cv::Point>& negativePoints,
                const cv::Rect& roi, cv::Mat& outputMaskSam, double& iouValue) const {
     std::lock_guard<std::recursive_mutex> lock(recursive_mutex);
     const size_t maskInputSize = 256 * 256;
-    float maskInputValues[maskInputSize] = {0},
-        hasMaskValues[] = {0},
-        orig_im_size_values[] = {static_cast<float>(inputShapePre[2]), static_cast<float>(inputShapePre[3])};
+    float maskInputValues[maskInputSize] = {0}, hasMaskValues[] = {0},
+          orig_im_size_values[] = {static_cast<float>(inputShapePre[2]),
+                                   static_cast<float>(inputShapePre[3])};
     memset(maskInputValues, 0, sizeof(maskInputValues));
 
     const float imgWidth = static_cast<float>(inputShapePre[3]);
@@ -208,58 +236,77 @@ struct SamModel {
           memoryInfo, (float*)outputTensorValuesPre.data(), outputTensorValuesPre.size(),
           outputShapePre.data(), outputShapePre.size()));
 
-      auto inputNames = inputNamesSam;
+      auto inputNames = inputNamesSam, outputNames = outputNamesSam;
+      int outputNumber = 3, outputMaskIndex = 0, outputIOUIndex = 1;
       if (bSamHQ) {
         inputTensorsSam.emplace_back(Ort::Value::CreateTensor<float>(
             memoryInfo, (float*)intermTensorValuesPre.data(), intermTensorValuesPre.size(),
             intermShapePre.data(), intermShapePre.size()));
         inputNames = inputNamesSamHQ;
+      } else if (bEdgeSam) {
+        outputNames = outputNamesEdgeSam;
+        outputNumber = 2;
+        outputMaskIndex = 1;
+        outputIOUIndex = 0;
       }
 
       inputTensorsSam.emplace_back(
           Ort::Value::CreateTensor<float>(memoryInfo, inputPointValues.data(), 2 * numPoints,
                                           inputPointShape.data(), inputPointShape.size()));
       inputTensorsSam.emplace_back(
-          Ort::Value::CreateTensor<float>(memoryInfo, inputLabelValues.data(), numPoints,
-                                          pointLabelsShape.data(), pointLabelsShape.size()));
-      inputTensorsSam.emplace_back(
-          Ort::Value::CreateTensor<float>(memoryInfo, maskInputValues, maskInputSize,
-                                          maskInputShape.data(), maskInputShape.size()));
-      inputTensorsSam.emplace_back(Ort::Value::CreateTensor<float>(
-          memoryInfo, hasMaskValues, 1, hasMaskInputShape.data(), hasMaskInputShape.size()));
-      inputTensorsSam.emplace_back(Ort::Value::CreateTensor<float>(
-          memoryInfo, orig_im_size_values, 2, origImSizeShape.data(), origImSizeShape.size()));
+          Ort::Value::CreateTensor<float>(memoryInfo, inputLabelValues.data(),
+                                                                numPoints, pointLabelsShape.data(),
+                                                                pointLabelsShape.size()));
 
-      Ort::RunOptions runOptionsSam;
-      auto outputTensorsSam = sessionSam->Run(runOptionsSam, inputNames, inputTensorsSam.data(),
-                                              inputTensorsSam.size(), outputNamesSam, 3);
+      if (!bEdgeSam) {
+        inputTensorsSam.emplace_back(
+            Ort::Value::CreateTensor<float>(memoryInfo, maskInputValues, maskInputSize,
+                                            maskInputShape.data(), maskInputShape.size()));
+        inputTensorsSam.emplace_back(Ort::Value::CreateTensor<float>(
+            memoryInfo, hasMaskValues, 1, hasMaskInputShape.data(), hasMaskInputShape.size()));
+        inputTensorsSam.emplace_back(Ort::Value::CreateTensor<float>(
+            memoryInfo, orig_im_size_values, 2, origImSizeShape.data(), origImSizeShape.size()));
+      }
 
-      auto outputMasksValues = outputTensorsSam[0].GetTensorMutableData<float>();
-      if (outputMaskSam.empty() || outputMaskSam.type() != CV_8UC1 ||
+      if (outputMaskSam.type() != CV_8UC1 ||
           outputMaskSam.size() != cv::Size(inputShapePre[3], inputShapePre[2])) {
         outputMaskSam = cv::Mat(inputShapePre[2], inputShapePre[3], CV_8UC1);
       }
 
-//#pragma omp parallel for
+      Ort::RunOptions runOptionsSam;
+      auto outputTensorsSam = sessionSam->Run(runOptionsSam, inputNames, inputTensorsSam.data(),
+                                              inputTensorsSam.size(), outputNames, outputNumber);
+
+      auto& outputMask = outputTensorsSam[outputMaskIndex];
+      auto maskShape = outputMask.GetTensorTypeAndShapeInfo().GetShape();
+
+      cv::Mat outputMaskImage(maskShape[2], maskShape[3], CV_32FC1,
+                              outputMask.GetTensorMutableData<float>());
+      if (outputMaskImage.size() != outputMaskSam.size()) {
+        cv::resize(outputMaskImage, outputMaskImage, outputMaskSam.size());
+      }
+
       for (int i = 0; i < outputMaskSam.rows; i++) {
         for (int j = 0; j < outputMaskSam.cols; j++) {
-          outputMaskSam.at<uchar>(i, j) =
-              outputMasksValues[i * outputMaskSam.cols + j] > 0 ? 255 : 0;
+          outputMaskSam.at<uint8_t>(i, j) = outputMaskImage.at<float>(i, j) > 0 ? 255 : 0;
         }
       }
 
       if (outputTensorsSam.size() > 1 &&
           outputTensorsSam[1].GetTensorTypeAndShapeInfo().GetElementCount() > 0) {
-        iouValue = outputTensorsSam[1].GetTensorMutableData<float>()[0];
+        iouValue = outputTensorsSam[outputIOUIndex].GetTensorMutableData<float>()[0];
       } else {
-        std::cerr << "____sam_cpp_lib error message!!!____ IOU tensor is missing or empty" << std::endl;
+        std::cerr << "____sam_cpp_lib error message!!!____ IOU tensor is missing or empty"
+                  << std::endl;
         iouValue = 0.0;  // default value in case of error
       }
     } catch (const Ort::Exception& e) {
-      std::cerr << "____sam_cpp_lib error message!!!____ ONNX Runtime exception: " << e.what() << std::endl;
+      std::cerr << "____sam_cpp_lib error message!!!____ ONNX Runtime exception: " << e.what()
+                << std::endl;
       throw;
     } catch (const std::exception& e) {
-      std::cerr << "____sam_cpp_lib error message!!!____ Standard exception: " << e.what() << std::endl;
+      std::cerr << "____sam_cpp_lib error message!!!____ Standard exception: " << e.what()
+                << std::endl;
       throw;
     } catch (...) {
       std::cerr << "____sam_cpp_lib error message!!!____ Unknown exception" << std::endl;

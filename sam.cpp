@@ -18,7 +18,7 @@ struct SamModel {
   Ort::MemoryInfo memoryInfo{Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)};
   bool bModelLoaded = false, bSamHQ = false;
   std::vector<float> outputTensorValuesPre, intermTensorValuesPre;
-  mutable std::mutex mutex;
+  mutable std::recursive_mutex recursive_mutex;
 
   char *inputNamesSam[6]{"image_embeddings", "point_coords",   "point_labels",
                          "mask_input",       "has_mask_input", "orig_im_size"},
@@ -159,7 +159,7 @@ struct SamModel {
 
   void getMask(const std::list<cv::Point>& points, const std::list<cv::Point>& negativePoints,
                const cv::Rect& roi, cv::Mat& outputMaskSam, double& iouValue) const {
-    std::lock_guard<std::mutex> lock(mutex);
+    std::lock_guard<std::recursive_mutex> lock(recursive_mutex);
     const size_t maskInputSize = 256 * 256;
     float maskInputValues[maskInputSize] = {0},
         hasMaskValues[] = {0},
@@ -235,7 +235,7 @@ struct SamModel {
                                               inputTensorsSam.size(), outputNamesSam, 3);
 
       auto outputMasksValues = outputTensorsSam[0].GetTensorMutableData<float>();
-      if (outputMaskSam.type() != CV_8UC1 ||
+      if (outputMaskSam.empty() || outputMaskSam.type() != CV_8UC1 ||
           outputMaskSam.size() != cv::Size(inputShapePre[3], inputShapePre[2])) {
         outputMaskSam = cv::Mat(inputShapePre[2], inputShapePre[3], CV_8UC1);
       }

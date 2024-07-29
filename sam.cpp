@@ -197,6 +197,28 @@ struct SamModel {
     const float imgWidth = static_cast<float>(inputShapePre[3]);
     const float imgHeight = static_cast<float>(inputShapePre[2]);
     std::vector<float> inputPointValues, inputLabelValues;
+
+    for (const auto& point : points) {
+      if (point.x < 0 || point.x >= imgWidth || point.y < 0 || point.y >= imgHeight) {
+        std::cerr << "Invalid point in positive points list: (" << point.x << ", " << point.y << ")\n";
+        return;
+      }
+    }
+    for (const auto& point : negativePoints) {
+      if (point.x < 0 || point.x >= imgWidth || point.y < 0 || point.y >= imgHeight) {
+        std::cerr << "Invalid point in negative points list: (" << point.x << ", " << point.y << ")\n";
+        return;
+      }
+    }
+    if (!roi.empty()) {
+      if (roi.x < 0 || roi.y < 0 || roi.width <= 0 || roi.height <= 0 || roi.br().x >= imgWidth ||
+          roi.br().y >= imgHeight) {
+        std::cerr << "Invalid ROI: (" << roi.x << ", " << roi.y << ", " << roi.width << ", "
+                  << roi.height << ")\n";
+        return;
+      }
+    }
+
     for (const auto& point : points) {
       if (point.x > 0 && point.x < imgWidth && point.y > 0 && point.y < imgHeight) {
         inputPointValues.emplace_back(static_cast<float>(point.x));
@@ -250,6 +272,12 @@ struct SamModel {
         outputIOUIndex = 0;
       }
 
+      if (inputPointValues.size() != 2 * numPoints || inputLabelValues.size() != numPoints) {
+        std::cerr << "Mismatch in input points or labels size.\n";
+        return;
+      }
+
+
       inputTensorsSam.emplace_back(
           Ort::Value::CreateTensor<float>(memoryInfo, inputPointValues.data(), 2 * numPoints,
                                           inputPointShape.data(), inputPointShape.size()));
@@ -276,6 +304,12 @@ struct SamModel {
       Ort::RunOptions runOptionsSam;
       auto outputTensorsSam = sessionSam->Run(runOptionsSam, inputNames, inputTensorsSam.data(),
                                               inputTensorsSam.size(), outputNames, outputNumber);
+
+      if (outputTensorsSam.size() < 2 || !outputTensorsSam[outputMaskIndex].IsTensor() || !outputTensorsSam[outputIOUIndex].IsTensor()) {
+        std::cerr << "Output tensors are missing or not tensors.\n";
+        return;
+      }
+
 
       auto& outputMask = outputTensorsSam[outputMaskIndex];
       auto maskShape = outputMask.GetTensorTypeAndShapeInfo().GetShape();
@@ -338,6 +372,7 @@ cv::Mat Sam::getMask(const std::list<cv::Point>& points, const std::list<cv::Poi
                      const cv::Rect& roi, double* iou) const {
   double iouValue = 0;
   cv::Mat m;
+  m = cv::Mat::zeros(m_model->getInputSize().height, m_model->getInputSize().width, CV_8UC1);
   m_model->getMask(points, negativePoints, roi, m, iouValue);
   if (iou != nullptr) {
     *iou = iouValue;

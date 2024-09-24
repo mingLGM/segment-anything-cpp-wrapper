@@ -81,9 +81,9 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(ProjectDir)..\;D:\opencv-4.5.3\build\include;D:\opencv-4.5.3\build\include\opencv2;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)..\;D:\opencv-4.9.0\build\include;D:\opencv-4.9.0\build\include\opencv2;$(IncludePath)</IncludePath>
     <OutDir>$(SolutionDir)$(Configuration)\</OutDir>
-    <LibraryPath>D:\opencv-4.5.3\build\x64\vc15\lib;$(ProjectDir)Release\..\..\build\Release;$(LibraryPath)</LibraryPath>
+    <LibraryPath>D:\opencv-4.9.0\build\x64\vc16\lib;$(ProjectDir)Release\..\..\build\Release;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -153,7 +153,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <AdditionalDependencies>sam_cpp_lib.lib;opencv_world453.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>sam_cpp_lib.lib;opencv_world490.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

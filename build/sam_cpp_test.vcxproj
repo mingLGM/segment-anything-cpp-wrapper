@@ -85,8 +85,8 @@
     <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">true</GenerateManifest>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>E:\work\code\github\SAM\segment-anything-cpp-wrapper\sam_wrapper;D:\opencv-4.5.3\build\include;D:\opencv-4.5.3\build\include\opencv2;$(IncludePath)</IncludePath>
-    <LibraryPath>D:\opencv-4.5.3\build\x64\vc15\lib;D:\gflags\lib;$(ProjectDir)Release;$(LibraryPath)</LibraryPath>
+    <IncludePath>E:\work\code\github\SAM\segment-anything-cpp-wrapper\sam_wrapper;D:\opencv-4.9.0\build\include;D:\opencv-4.9.0\build\include\opencv2;D:\gflags\include;$(IncludePath)</IncludePath>
+    <LibraryPath>D:\opencv-4.9.0\build\x64\vc16\lib;D:\gflags\lib;$(ProjectDir)Release;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -132,7 +132,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>D:\opencv-4.5.3\build\include;E:\work\code\github\SAM\gflags\mybuild\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ExceptionHandling>Sync</ExceptionHandling>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
@@ -159,7 +159,7 @@
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <Link>
-      <AdditionalDependencies>opencv_world453.lib;gflags.lib;sam_wrapper.lib;sam_cpp_lib.lib</AdditionalDependencies>
+      <AdditionalDependencies>opencv_world490.lib;gflags.lib;sam_wrapper.lib;sam_cpp_lib.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
       <GenerateDebugInformation>false</GenerateDebugInformation>

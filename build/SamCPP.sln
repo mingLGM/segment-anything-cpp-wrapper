@@ -20,10 +20,14 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "sam_cpp_test", "sam_cpp_test.vcxproj", "{5584C1DD-E9E7-3EC1-9B63-5845368506BC}"
 	ProjectSection(ProjectDependencies) = postProject
 		{ED77B223-A605-3D99-AC6B-B8EAC340EC20} = {ED77B223-A605-3D99-AC6B-B8EAC340EC20}
+		{8804EB5B-1F57-41AD-BE26-BE0885AB07B5} = {8804EB5B-1F57-41AD-BE26-BE0885AB07B5}
 		{95B6277E-A7FB-3120-AA8A-27AE8272F3AE} = {95B6277E-A7FB-3120-AA8A-27AE8272F3AE}
 	EndProjectSection
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "sam_wrapper", "..\sam_wrapper\sam_wrapper.vcxproj", "{8804EB5B-1F57-41AD-BE26-BE0885AB07B5}"
+	ProjectSection(ProjectDependencies) = postProject
+		{ED77B223-A605-3D99-AC6B-B8EAC340EC20} = {ED77B223-A605-3D99-AC6B-B8EAC340EC20}
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

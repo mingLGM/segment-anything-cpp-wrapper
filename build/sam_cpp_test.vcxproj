@@ -85,8 +85,8 @@
     <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">true</GenerateManifest>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>E:\work\code\github\SAM\segment-anything-cpp-wrapper\sam_wrapper;D:\opencv-4.9.0\build\include;D:\opencv-4.9.0\build\include\opencv2;D:\gflags\include;$(IncludePath)</IncludePath>
-    <LibraryPath>D:\opencv-4.9.0\build\x64\vc16\lib;D:\gflags\lib;$(ProjectDir)Release;$(LibraryPath)</LibraryPath>
+    <IncludePath>E:\work\code\github\SAM\segment-anything-cpp-wrapper\sam_wrapper;D:\opencv-4.9.0\build\include;D:\opencv-4.9.0\build\include\opencv2;$(ProjectDir)..\gflags\include\gflags;$(IncludePath)</IncludePath>
+    <LibraryPath>D:\opencv-4.9.0\build\x64\vc16\lib;$(ProjectDir)..\gflags\lib;$(ProjectDir)Release;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>

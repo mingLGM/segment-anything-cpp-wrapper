@@ -14,9 +14,8 @@ class __declspec(dllexport) SamWrapper {
   cv::Mat getMask(const std::list<cv::Point>& points, const std::list<cv::Point>& negativePoints,
                   const cv::Rect& roi, double* iou = nullptr) const;
 };
-// 使用 typedef 定义指针类型
+
+  // 使用 typedef 定义指针类型
 typedef std::shared_ptr<SamWrapper> SAM;
-cv::Mat SamMask;
-std::mutex SamMutex;
 
 #endif  // SAM_WRAPPER_H_
